@@ -8,6 +8,14 @@ from runtime.blocks import ToolResultBlock, Usage
 STOP_MAP = {"stop": "end_turn", "tool_calls": "tool_use", "length": "max_tokens"}
 
 
+def _map_status(status, headers, body):
+    """把 OpenAI 兼容端点的 HTTP 状态归一化为运行时异常。"""
+    if status == 429: return RateLimitError(float(headers.get("retry-after", 30)), body[:200])
+    if status in (401, 403): return ProviderAuthError(body[:200])
+    if status == 400: return ProviderBadRequestError(body[:200])
+    return ProviderServerError(f"HTTP {status}: {body[:200]}")
+
+
 class OpenAICompatProvider(ModelProvider):
     def __init__(self, api_key=None, base_url="https://api.deepseek.com", timeout=60.0, transport=None):
         self.api_key, self.base_url, self.timeout, self.transport = api_key or os.getenv("OPENAI_API_KEY", ""), base_url.rstrip("/"), timeout, transport
@@ -36,8 +44,7 @@ class OpenAICompatProvider(ModelProvider):
                 async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload, headers={"Authorization": f"Bearer {self.api_key}"}) as response:
                     if response.status_code != 200:
                         body = (await response.aread()).decode(errors="replace")
-                        if response.status_code == 429: raise RateLimitError(float(response.headers.get("retry-after", 30)), body[:200])
-                        raise ProviderServerError(body[:200])
+                        raise _map_status(response.status_code, response.headers, body)
                     async for line in response.aiter_lines():
                         if not line.startswith("data:"): continue
                         raw = line[5:].strip()

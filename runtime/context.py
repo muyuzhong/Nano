@@ -56,7 +56,12 @@ def _snip(messages, keep_recent):
     if len(messages) <= keep_recent + 2: return messages
     start = len(messages) - keep_recent
     while start < len(messages) and not _plain_user(messages[start]): start += 1
-    if start >= len(messages): start = len(messages) - keep_recent
+    if start >= len(messages):
+        start = len(messages) - keep_recent
+        # 找不到普通用户消息时，至少继续越过 tool_result，避免保留缺少
+        # 对应 tool_use 的孤儿结果，破坏 Provider 历史协议。
+        while start < len(messages) and any(isinstance(block, ToolResultBlock) for block in messages[start].content):
+            start += 1
     summary = Message.user(f"[历史已压缩] 此处省略了 {start - 1} 条早期消息。")
     return [messages[0], summary] + messages[start:]
 

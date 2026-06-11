@@ -40,6 +40,18 @@ async def test_non_retryable_error_ends_run(tmp_path):
     assert (await collect(loop.run("hi")))[-1].reason == "provider_error"
 
 
+async def test_broken_tool_json_fed_back_as_error(tmp_path):
+    from providers.base import MessageEnd, MessageStart, ToolInputDelta, ToolUseEnd, ToolUseStart
+    from runtime.blocks import Usage
+    broken = [MessageStart("mock-model"), ToolUseStart("t1", "echo"),
+              ToolInputDelta("t1", '{"text": '), ToolUseEnd("t1"),
+              MessageEnd("tool_use", Usage(1, 1))]
+    loop, _ = make_loop(tmp_path, [broken, MockProvider.text_turn("知道了")], [EchoTool()])
+    events = await collect(loop.run("hi"))
+    assert any(isinstance(event, ev.ToolResultReceived) and event.is_error for event in events)
+    assert events[-1].reason == "completed"
+
+
 async def test_token_budget_stops_loop(tmp_path):
     loop, _ = make_loop(tmp_path, [MockProvider.tool_turn("echo", {"text": "a"})], [EchoTool()], ledger=TokenLedger(max_api_calls=1))
     assert (await collect(loop.run("hi")))[-1].reason == "token_budget"
