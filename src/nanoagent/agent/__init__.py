@@ -1,5 +1,6 @@
 """nanoagent.agent — runtime: AgentMessage, loop, tools, control, Agent."""
 
+from nanoagent.agent.agent import Agent, AgentBusyError, AgentState
 from nanoagent.agent.context import TransformContext, assemble_context
 from nanoagent.agent.control import AbortSignal, AllowAll, ControlSource
 from nanoagent.agent.events import (
@@ -60,4 +61,8 @@ __all__ = [
     # loop
     "AgentLoopConfig",
     "agent_loop",
+    # agent
+    "Agent",
+    "AgentState",
+    "AgentBusyError",
 ]
