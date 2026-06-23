@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import AsyncIterator, Callable
 
 from nanoagent.ai.events import (
@@ -31,7 +32,7 @@ class MockModel(Model):
         handler: Callable[[Context], dict] | None = None,
     ):
         super().__init__(id=id, api="mock", provider=provider)
-        self._responses = list(responses or [])
+        self._responses = copy.deepcopy(responses or [])
         self._handler = handler
         self._idx = 0
         self.calls: list[Context] = []

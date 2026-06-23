@@ -43,3 +43,14 @@ async def test_mock_response_can_set_usage():
     assert events[-1].message.usage.input == 2
     assert events[-1].message.usage.output == 3
     assert events[-1].message.usage.total_tokens == 5
+
+
+@pytest.mark.asyncio
+async def test_mock_model_copies_scripted_responses_on_init():
+    responses = [{"content": ["original"]}]
+
+    mock = create_mock_model(responses=responses)
+    responses[0]["content"][0] = "mutated"
+    events = [e async for e in mock.stream(mock, Context(), None)]
+
+    assert events[-1].message.content[0].text == "original"

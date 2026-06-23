@@ -169,3 +169,15 @@
 - 验证：`pytest tests/ai -q`，26 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest -q`，73 passed，1 个 pytest cache 写入警告。
+
+## 2026-06-23 - mock provider 响应脚本隔离
+
+- 模块：`nanoagent.ai.providers.mock`
+- 改动：`MockModel` 初始化时会深拷贝 scripted `responses`，避免测试代码后续修改原响应脚本影响 mock 输出。
+- 约束：只隔离静态响应脚本；不改变 handler 动态响应、真实 provider、默认 provider 或 token 策略。
+- 测试：先新增 `test_mock_model_copies_scripted_responses_on_init` 并确认外部修改响应内容会污染输出导致失败，再做最小实现。
+- 验证：`pytest tests/ai/test_mock.py::test_mock_model_copies_scripted_responses_on_init -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai/test_mock.py -q`，4 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai -q`，27 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest -q`，74 passed，1 个 pytest cache 写入警告。
