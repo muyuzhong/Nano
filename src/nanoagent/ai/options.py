@@ -18,3 +18,7 @@ class StreamOptions:
     temperature: float | None = None
     max_tokens: int | None = None
     reasoning: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_tokens is not None and self.max_tokens < 0:
+            raise ValueError("max_tokens must be non-negative")

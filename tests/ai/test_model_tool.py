@@ -31,3 +31,8 @@ def test_provider_error_structured():
 
 def test_stream_options_defaults():
     assert StreamOptions().temperature is None
+
+
+def test_stream_options_rejects_negative_max_tokens():
+    with pytest.raises(ValueError, match="max_tokens must be non-negative"):
+        StreamOptions(max_tokens=-1)

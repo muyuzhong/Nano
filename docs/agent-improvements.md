@@ -217,3 +217,15 @@
 - 验证：`pytest tests/ai -q`，29 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest -q`，77 passed，1 个 pytest cache 写入警告。
+
+## 2026-06-23 - ai StreamOptions max_tokens 边界
+
+- 模块：`nanoagent.ai`
+- 改动：`StreamOptions` 现在拒绝负数 `max_tokens`，避免明显无效的输出 token 上限进入 provider 调用路径。
+- 约束：不规定具体预算数值，不限制 `None` 或非负值，也不选择 provider 或 API key。
+- 测试：先新增 `test_stream_options_rejects_negative_max_tokens` 并确认当前实现未抛错导致失败，再做最小实现。
+- 验证：`pytest tests/ai/test_model_tool.py::test_stream_options_rejects_negative_max_tokens -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai/test_model_tool.py -q`，6 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai -q`，30 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest -q`，78 passed，1 个 pytest cache 写入警告。
