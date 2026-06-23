@@ -110,3 +110,14 @@
 - 验证：`pytest tests/ai/test_mock.py -q`，3 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest -q`，68 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+
+## 2026-06-23 - utils ID 前缀类型边界
+
+- 模块：`nanoagent.utils`
+- 改动：`new_id` 现在会拒绝非字符串 `prefix`，避免调用方意外把数字等对象格式化进 ID 前缀。
+- 约束：不改变空前缀和普通字符串前缀的 ID 格式；不引入 harness 策略或全局配置。
+- 测试：先新增 `test_new_id_rejects_non_string_prefix` 并确认当前实现没有抛错导致失败，再做最小实现。
+- 验证：`pytest tests/utils/test_ids.py::test_new_id_rejects_non_string_prefix -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/utils/test_ids.py -q`，2 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest -q`，69 passed，1 个 pytest cache 写入警告。
