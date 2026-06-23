@@ -53,6 +53,25 @@ async def test_prompt_returns_result_and_accumulates_history():
 
 
 @pytest.mark.asyncio
+async def test_prompt_list_input_is_snapshotted_for_run():
+    clear_providers()
+    register_mock()
+    mock = create_mock_model(responses=[{"content": ["hi"]}])
+    agent = Agent(model=mock)
+    prompts = [UserMessage(content="first")]
+
+    def mutate_prompts(event):
+        if event.type == "agent_start":
+            prompts.append(UserMessage(content="late"))
+
+    agent.subscribe(mutate_prompts)
+    await agent.prompt(prompts)
+
+    user_messages = [m for m in agent.state.messages if m.role == "user"]
+    assert [m.content for m in user_messages] == ["first"]
+
+
+@pytest.mark.asyncio
 async def test_steer_injects_queued_message_into_next_turn():
     clear_providers()
     register_mock()

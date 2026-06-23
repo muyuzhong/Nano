@@ -141,7 +141,7 @@ class Agent:
         if isinstance(input, str):
             prompts: list[AgentMessage] = [UserMessage(content=input)]
         elif isinstance(input, list):
-            prompts = input
+            prompts = list(input)
         else:
             prompts = [input]
 

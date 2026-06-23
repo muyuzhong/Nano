@@ -181,3 +181,15 @@
 - 验证：`pytest tests/ai -q`，27 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest -q`，74 passed，1 个 pytest cache 写入警告。
+
+## 2026-06-23 - agent prompt 列表输入快照
+
+- 模块：`nanoagent.agent`
+- 改动：`Agent.prompt()` 接收 list 输入时会复制列表结构，避免调用方或事件监听器在 run 开始后修改原列表并影响本次 prompt 事件流。
+- 约束：只隔离 prompt 列表结构，不深拷贝消息对象；不改变上下文裁剪、provider、工具或 harness 策略。
+- 测试：先新增 `test_prompt_list_input_is_snapshotted_for_run` 并确认 `agent_start` 监听器修改原列表会让额外 prompt 进入 state 导致失败，再做最小实现。
+- 验证：`pytest tests/agent/test_agent.py::test_prompt_list_input_is_snapshotted_for_run -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/agent/test_agent.py -q`，12 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/agent -q`，43 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest -q`，75 passed，1 个 pytest cache 写入警告。
