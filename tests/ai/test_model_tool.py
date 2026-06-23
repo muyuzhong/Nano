@@ -13,6 +13,15 @@ def test_tool_holds_json_schema():
     assert t.parameters["type"] == "object"
 
 
+def test_tool_copies_json_schema_on_init():
+    schema = {"type": "object", "properties": {"text": {"type": "string"}}}
+
+    t = Tool(name="echo", description="echo back", parameters=schema)
+    schema["properties"]["text"]["type"] = "number"
+
+    assert t.parameters["properties"]["text"]["type"] == "string"
+
+
 def test_provider_error_structured():
     err = ProviderError("rate limited", status=429, code="rate_limit")
     assert err.status == 429 and err.code == "rate_limit"

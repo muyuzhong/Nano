@@ -157,3 +157,15 @@
 - 验证：`pytest tests/agent -q`，42 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
 - 验证：`pytest -q`，72 passed，1 个 pytest cache 写入警告。
+
+## 2026-06-23 - ai Tool schema 输入隔离
+
+- 模块：`nanoagent.ai`
+- 改动：`Tool` 构造时会深拷贝 `parameters` JSON Schema，避免调用方后续修改原 schema 污染 provider 可见工具定义。
+- 约束：不改变 schema 内容、工具选择、provider 编码或执行策略；只隔离 wire tool 的输入字典。
+- 测试：先新增 `test_tool_copies_json_schema_on_init` 并确认外部嵌套 schema 修改会影响 `Tool.parameters` 导致失败，再做最小实现。
+- 验证：`pytest tests/ai/test_model_tool.py::test_tool_copies_json_schema_on_init -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai/test_model_tool.py -q`，5 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/ai -q`，26 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest tests/test_import_contract.py -q`，1 passed，1 个 pytest cache 写入警告。
+- 验证：`pytest -q`，73 passed，1 个 pytest cache 写入警告。
