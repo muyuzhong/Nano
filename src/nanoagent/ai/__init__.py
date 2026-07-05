@@ -1,8 +1,16 @@
-"""nanoagent.ai — provider abstraction + wire message model + streaming."""
+"""nanoagent.ai：provider 抽象、wire message model 和 streaming 工具。"""
 
 from nanoagent.ai.accumulator import StreamAccumulator, accumulate
 from nanoagent.ai.events import (
     AssistantMessageEvent,
+    ProviderErrorEvent,
+    ProviderEvent,
+    ProviderResponseEndEvent,
+    ProviderResponseStartEvent,
+    ProviderRetryEvent,
+    ProviderTextDeltaEvent,
+    ProviderThinkingDeltaEvent,
+    ProviderToolCallEvent,
     StreamDone,
     StreamError,
     StreamStart,
@@ -17,6 +25,7 @@ from nanoagent.ai.events import (
     ToolCallStart,
 )
 from nanoagent.ai.errors import ProviderError
+from nanoagent.ai.fake import FakeProvider
 from nanoagent.ai.messages import (
     AssistantContent,
     AssistantMessage,
@@ -32,8 +41,11 @@ from nanoagent.ai.messages import (
     Usage,
 )
 from nanoagent.ai.model import Model
+from nanoagent.ai.openai_compatible import OpenAICompatibleProvider
 from nanoagent.ai.options import StreamOptions
 from nanoagent.ai.provider import (
+    CancellationToken,
+    ModelProvider,
     Provider,
     clear_providers,
     get_provider,
@@ -62,7 +74,16 @@ __all__ = [
     "ToolResultMessage",
     "Message",
     "Context",
-    # events
+    # provider-neutral events
+    "ProviderEvent",
+    "ProviderResponseStartEvent",
+    "ProviderRetryEvent",
+    "ProviderTextDeltaEvent",
+    "ProviderThinkingDeltaEvent",
+    "ProviderToolCallEvent",
+    "ProviderResponseEndEvent",
+    "ProviderErrorEvent",
+    # legacy stream events
     "AssistantMessageEvent",
     "StreamStart",
     "TextStart",
@@ -88,6 +109,10 @@ __all__ = [
     "ProviderError",
     "StreamOptions",
     # provider
+    "CancellationToken",
+    "ModelProvider",
+    "FakeProvider",
+    "OpenAICompatibleProvider",
     "Provider",
     "register_provider",
     "registered_provider_apis",
