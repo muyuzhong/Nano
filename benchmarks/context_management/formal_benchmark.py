@@ -146,6 +146,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=DEFAULT_RESULT_PATH)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--unattributed-spend-cny",
+        type=float,
+        default=0.0,
+        help="续跑前补记上次中断但尚未落入会话结果的实际费用",
+    )
     return parser.parse_args()
 
 
@@ -939,6 +945,18 @@ def main() -> int:
             raise SystemExit("数据集已变化，不能续跑旧结果")
         if payload["run_order"] != order:
             raise SystemExit("任务顺序或筛选条件已变化，不能续跑旧结果")
+        if args.unattributed_spend_cny < 0:
+            raise SystemExit("unattributed-spend-cny 不能为负数")
+        if args.unattributed_spend_cny:
+            payload["metadata"]["unattributed_partial_spend_cny"] = (
+                float(payload["metadata"].get("unattributed_partial_spend_cny", 0.0))
+                + args.unattributed_spend_cny
+            )
+            payload["metadata"]["benchmark_spend_cny"] = (
+                float(payload["metadata"].get("benchmark_spend_cny", 0.0))
+                + args.unattributed_spend_cny
+            )
+        payload["metadata"]["budget_limit_cny"] = args.budget_cny
     else:
         payload = initialize_payload(
             args, dataset, validation, tasks, policies, repeat_count, order
@@ -965,19 +983,35 @@ def main() -> int:
             f"第 {entry['repeat']} 次（已计费 {budget.spent_cny:.4f} 元）",
             flush=True,
         )
-        result, source_meta = run_session(
-            client,
-            task,
-            policy=entry["policy"],
-            repeat=int(entry["repeat"]),
-            model=args.model,
-            base_url=args.base_url,
-            api_key=api_key,
-            budget=budget,
-            effective_window=int(dataset["effective_window_tokens"]),
-            run_id=payload["metadata"]["run_id"],
-            cache_settle_seconds=args.cache_settle_seconds,
-        )
+        try:
+            result, source_meta = run_session(
+                client,
+                task,
+                policy=entry["policy"],
+                repeat=int(entry["repeat"]),
+                model=args.model,
+                base_url=args.base_url,
+                api_key=api_key,
+                budget=budget,
+                effective_window=int(dataset["effective_window_tokens"]),
+                run_id=payload["metadata"]["run_id"],
+                cache_settle_seconds=args.cache_settle_seconds,
+            )
+        except Exception as exc:
+            payload["metadata"]["benchmark_spend_cny"] = budget.spent_cny
+            payload.setdefault("aborted_attempts", []).append(
+                {
+                    "task_id": entry["task_id"],
+                    "policy": entry["policy"],
+                    "repeat": int(entry["repeat"]),
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                    "spend_cny_after_attempt": budget.spent_cny,
+                    "error": str(exc),
+                }
+            )
+            finalize_payload(payload, price, args.seed)
+            write_payload(args.output, args.report, payload)
+            raise
         payload["session_results"].append(result.as_dict())
         payload["source_snapshots"][task["id"]] = source_meta
         payload["metadata"]["benchmark_spend_cny"] = budget.spent_cny
