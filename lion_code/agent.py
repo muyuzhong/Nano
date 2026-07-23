@@ -66,16 +66,15 @@ from .session import save_session
 from .prompt import build_system_prompt, build_static_system_prompt, build_dynamic_system_context, build_user_context_reminder, load_claude_md
 from .skills import create_skill
 from .subagent import get_sub_agent_config
-from .mcp_client import McpManager
 from .hooks import load_pre_tool_use_hooks
-from .tooling import ToolRegistry, ToolResult, ToolRuntime
+from .tooling import ToolEnvironment, ToolRegistry, ToolResult, ToolRuntime
 from .tooling.builtin import create_builtin_tools
 from .tooling.context import ToolContext
 from .tooling.internal import (
     create_internal_tools,
-    create_legacy_mcp_tool,
     create_schedule_wakeup_tool,
 )
+from .tooling.mcp import create_mcp_tool
 from .tooling.middleware import (
     AuditMiddleware,
     CancellationMiddleware,
@@ -87,6 +86,7 @@ from .tooling.middleware import (
 )
 from .tooling.permission import PermissionPolicy
 from .tooling.result_store import ResultStore
+from .tooling.selection import ToolSelectionPolicy, select_tools
 from .tooling.types import JSONValue
 
 # ─── 指数退避重试 ───────────────────────────────────────────
@@ -225,6 +225,8 @@ class Agent:
         confirm_fn: Callable[[str], Awaitable[bool]] | None = None,
         custom_system_prompt: str | None = None,
         custom_tools: list[ToolDef] | None = None,
+        tool_registry: ToolRegistry | None = None,
+        tool_environment: ToolEnvironment | None = None,
         is_sub_agent: bool = False,
     ):
         self.permission_mode = permission_mode
@@ -232,7 +234,6 @@ class Agent:
         self.model = model
         self.use_openai = bool(api_base)
         self.is_sub_agent = is_sub_agent
-        self.tools = custom_tools or tool_definitions
         self._pre_tool_use_hooks = load_pre_tool_use_hooks()
         self.max_cost_usd = max_cost_usd
         self.max_turns = max_turns
@@ -282,16 +283,27 @@ class Agent:
         # 记录文件读取时的 mtime，落实“先读后改”并检测外部并发修改。
         self._read_file_state: dict[str, float] = {}
 
-        # 普通工具通过每个 Agent 独享的 Registry 与 Runtime 执行；内部工具仍在本
-        # 阶段使用旧路由，避免一次改动跨越 PR 1 的兼容边界。
-        selected_tool_names = {tool["name"] for tool in self.tools}
-        self.tool_registry = ToolRegistry()
-        for tool in create_builtin_tools():
-            if tool.name in selected_tool_names:
-                self.tool_registry.register(tool)
-        for tool in create_internal_tools():
-            if tool.name in selected_tool_names:
-                self.tool_registry.register(tool)
+        if tool_registry is not None and custom_tools is not None:
+            raise ValueError("tool_registry and custom_tools cannot be combined")
+        if tool_registry is None:
+            selected_schemas = (
+                custom_tools if custom_tools is not None else tool_definitions
+            )
+            selected_tool_names = {tool["name"] for tool in selected_schemas}
+            self.tool_registry = ToolRegistry()
+            for tool in create_builtin_tools():
+                if tool.name in selected_tool_names:
+                    self.tool_registry.register(tool)
+            for tool in create_internal_tools():
+                if tool.name in selected_tool_names:
+                    self.tool_registry.register(tool)
+        else:
+            self.tool_registry = tool_registry
+        # Deprecated：仅供旧基准脚本读取；运行时和子 Agent 不再依赖 Schema 列表。
+        self.tools = [
+            tool.to_anthropic_schema()
+            for tool in self.tool_registry.all_tools()
+        ]
         self.tool_context = ToolContext(
             session_id=self.session_id,
             cwd=Path.cwd(),
@@ -322,8 +334,9 @@ class Agent:
             ],
         )
 
-        # MCP 延迟到首次对话初始化，避免仅查看 --help 也启动外部进程。
-        self._mcp_manager = McpManager()
+        # 根 Agent 拥有 MCP 生命周期；子 Agent 只接收共享环境的非拥有视图。
+        self.tool_environment = tool_environment or ToolEnvironment()
+        self._mcp_manager = self.tool_environment.mcp_manager
         self._mcp_initialized = False
 
         # 每轮预取语义 Memory。句柄保存在实例上，因此若结果在本轮最后一次 API 调用后
@@ -506,18 +519,23 @@ class Agent:
     # ─── 主对话入口 ──────────────────────────────────────────
 
     async def chat(self, user_message: str) -> None:
-        # 主 Agent 首次对话才连接 MCP；子 Agent 复用已分配工具，不重复启动 Server。
-        if not self._mcp_initialized and not self.is_sub_agent:
+        # 只允许根环境在首次对话时发现 MCP；子 Agent 直接复用父 Registry 中的适配器。
+        if (
+            not self._mcp_initialized
+            and not self.is_sub_agent
+            and self.tool_environment.owns_mcp_manager
+        ):
             self._mcp_initialized = True
             try:
-                await self._mcp_manager.load_and_connect()
-                mcp_defs = self._mcp_manager.get_tool_definitions()
-                if mcp_defs:
-                    self.tools = self.tools + mcp_defs
-                    for schema in mcp_defs:
-                        self.tool_registry.register(
-                            create_legacy_mcp_tool(self._mcp_manager, schema)
-                        )
+                definitions = await self._mcp_manager.discover_tools()
+                for definition in definitions:
+                    self.tool_registry.register(
+                        create_mcp_tool(self._mcp_manager, definition)
+                    )
+                self.tools = [
+                    tool.to_anthropic_schema()
+                    for tool in self.tool_registry.all_tools()
+                ]
             except Exception as e:
                 print(f"[mcp] Init failed: {e}", flush=True)
 
@@ -1352,21 +1370,23 @@ class Agent:
             return f"Unknown skill: {inp.get('skill_name', '')}"
 
         if result["context"] == "fork":
-            # schedule_wakeup 只属于当前 Agent 的动态 loop 驱动器，fork Skill 不得继承。
-            tools = [
-                t for t in (
-                    [t for t in self.tools if t["name"] in result["allowed_tools"]]
-                    if result.get("allowed_tools")
-                    else [t for t in self.tools if t["name"] != "agent"]
+            if result.get("allowed_tools"):
+                policy = ToolSelectionPolicy(
+                    allowed_names=frozenset(result["allowed_tools"]),
+                    exclude_names=frozenset({"schedule_wakeup"}),
                 )
-                if t["name"] != "schedule_wakeup"
-            ]
+            else:
+                policy = ToolSelectionPolicy(
+                    exclude_names=frozenset({"agent", "schedule_wakeup"}),
+                )
+            child_registry = select_tools(self.tool_registry, policy)
             print_sub_agent_start("skill-fork", inp.get("skill_name", ""))
             sub_agent = Agent(
                 model=self.model,
                 api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
                 custom_system_prompt=result["prompt"],
-                custom_tools=tools,
+                tool_registry=child_registry,
+                tool_environment=self.tool_environment.child_view(),
                 is_sub_agent=True,
                 permission_mode=self._child_permission_mode(),
             )
@@ -1379,6 +1399,8 @@ class Agent:
             except Exception as e:
                 print_sub_agent_end("skill-fork", inp.get("skill_name", ""))
                 return f"Skill fork error: {e}"
+            finally:
+                await sub_agent.close()
 
         return f'[Skill "{inp.get("skill_name", "")}" activated]\n\n{result["prompt"]}'
 
@@ -1506,11 +1528,16 @@ IMPORTANT: When your plan is complete, you MUST call exit_plan_mode. Do NOT ask 
         print_sub_agent_start(agent_type, description)
 
         config = get_sub_agent_config(agent_type)
+        child_registry = select_tools(
+            self.tool_registry,
+            config.tool_policy,
+        )
         sub_agent = Agent(
             model=self.model,
             api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
-            custom_system_prompt=config["system_prompt"],
-            custom_tools=config["tools"],
+            custom_system_prompt=config.system_prompt,
+            tool_registry=child_registry,
+            tool_environment=self.tool_environment.child_view(),
             is_sub_agent=True,
             permission_mode=self._child_permission_mode(),
         )
@@ -1524,13 +1551,14 @@ IMPORTANT: When your plan is complete, you MUST call exit_plan_mode. Do NOT ask 
         except Exception as e:
             print_sub_agent_end(agent_type, description)
             return f"Sub-agent error: {e}"
+        finally:
+            await sub_agent.close()
 
     # ─── 外部资源与 Memory 预取 ──────────────────────────────
 
     async def close(self) -> None:
         """释放 MCP 子进程等外部资源，确保进程正常退出（issue #8）。"""
-        if self._mcp_initialized:
-            await self._mcp_manager.disconnect_all()
+        await self.tool_environment.close()
 
     def _consume_memory_prefetch_if_ready(self, messages: list) -> None:
         """非阻塞消费已完成的 Memory 预取，并追加到末条用户消息以保持 role 交替。"""

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import inspect
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from lion_code.mcp_client import DiscoveredMcpTool
+from lion_code.agent import Agent
+from lion_code.mcp_client import DiscoveredMcpTool, McpManager
 from lion_code.tooling.context import ToolContext
+from lion_code.tooling.environment import ToolEnvironment
 from lion_code.tooling.mcp import create_mcp_tool
 from lion_code.tooling.middleware import PermissionMiddleware
 from lion_code.tooling.permission import PermissionPolicy
@@ -106,6 +109,38 @@ class TestMcpAdapter(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tool.capabilities.concurrency_safe)
         self.assertTrue(tool.capabilities.external_side_effect)
         self.assertTrue(tool.capabilities.requires_confirmation)
+
+    def test_agent_has_no_mcp_prefix_router(self):
+        source = inspect.getsource(Agent._execute_tool_call)
+
+        self.assertNotIn("mcp__", source)
+        self.assertFalse(hasattr(McpManager, "is_mcp_tool"))
+
+    async def test_root_agent_registers_discovered_tools_and_closes_once(self):
+        manager = _Manager()
+        manager.discover_tools = AsyncMock(return_value=[_definition()])
+        manager.disconnect_all = AsyncMock()
+        environment = ToolEnvironment(mcp_manager=manager)
+        with patch("lion_code.agent.load_pre_tool_use_hooks", return_value=[]):
+            agent = Agent(
+                api_key="test-key",
+                tool_environment=environment,
+            )
+        agent._chat_anthropic = AsyncMock()
+        agent._auto_save = lambda: None
+
+        with patch("lion_code.agent.print_divider"):
+            await agent.chat("first")
+            await agent.chat("second")
+        await agent.close()
+        await agent.close()
+
+        manager.discover_tools.assert_awaited_once_with()
+        self.assertEqual(
+            agent.tool_registry.resolve("mcp__docs__search__pages").label,
+            "search__pages",
+        )
+        manager.disconnect_all.assert_awaited_once_with()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from lion_code.subagent import get_sub_agent_config
 from lion_code.tooling.registry import ToolRegistry
@@ -83,6 +84,25 @@ class TestToolSelection(unittest.TestCase):
         self.assertEqual(
             [tool.name for tool in child.all_tools()],
             ["read_file"],
+        )
+
+    def test_custom_agent_allowed_tools_support_mcp_names(self):
+        mcp_name = "mcp__docs__search"
+        self.registry.register(_tool(mcp_name))
+        custom = {
+            "custom": {
+                "allowed_tools": [mcp_name],
+                "system_prompt": "custom prompt",
+            }
+        }
+
+        with patch("lion_code.subagent._discover_custom_agents", return_value=custom):
+            config = get_sub_agent_config("custom")
+        child = select_tools(self.registry, config.tool_policy)
+
+        self.assertEqual(
+            [tool.name for tool in child.all_tools()],
+            [mcp_name],
         )
 
 
