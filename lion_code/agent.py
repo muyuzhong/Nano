@@ -73,7 +73,7 @@ from .prompt import build_system_prompt, build_static_system_prompt, build_dynam
 from .skills import create_skill
 from .subagent import get_sub_agent_config
 from .mcp_client import McpManager
-from .hooks import load_pre_tool_use_hooks, run_pre_tool_use_hooks
+from .hooks import HookOutcome, load_pre_tool_use_hooks, run_pre_tool_use_hooks
 
 # ─── 指数退避重试 ───────────────────────────────────────────
 
@@ -1230,14 +1230,30 @@ class Agent:
     # ─── 工具路由（含 Agent、Skill 与 Plan 内部工具）────────
 
     async def _execute_tool_call(self, name: str, inp: dict) -> str:
-        denial = await run_pre_tool_use_hooks(
+        hook_chain = await run_pre_tool_use_hooks(
             self._pre_tool_use_hooks,
             name,
             inp,
             confirm_trust=self._confirm_hook_trust,
         )
-        if denial is not None:
-            return f"Action denied by PreToolUse hook: {denial}"
+        if hook_chain.outcome is not HookOutcome.ALLOW:
+            terminal = hook_chain.terminal_result
+            if terminal is None:
+                return (
+                    "Tool call blocked because the hook system returned an invalid result.\n\n"
+                    "The hook system failed. Do not interpret this as user intent."
+                )
+            reason = terminal.reason or "No reason was provided."
+            if terminal.outcome is HookOutcome.DENY:
+                return (
+                    f'Action denied by hook "{terminal.hook_id}":\n{reason}\n\n'
+                    "A configured policy rejected this action. Adjust the action."
+                )
+            return (
+                f'Tool call blocked because hook "{terminal.hook_id}" failed:\n'
+                f"{reason}\n\n"
+                "The hook system failed. Do not interpret this as user intent."
+            )
 
         if name in ("enter_plan_mode", "exit_plan_mode"):
             return await self._execute_plan_mode_tool(name)
