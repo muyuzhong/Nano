@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .types import JSONValue, ToolResult
 
 if TYPE_CHECKING:
     from .registry import ToolRegistry
+    from .types import LionTool
 
 
 class AgentToolController(Protocol):
@@ -48,3 +49,15 @@ class ToolContext:
     plan_file_path: str | None
     read_file_state: dict[str, float]
     confirm_fn: Callable[[str], Awaitable[bool]] | None = None
+    hooks: list[Any] = field(default_factory=list)
+    confirm_hook_trust: Callable[[str], Awaitable[bool]] | None = None
+    auto_permission_fn: Callable[
+        [str, Mapping[str, JSONValue]],
+        Awaitable[dict],
+    ] | None = None
+    confirmed_paths: set[str] = field(default_factory=set)
+    cancellation_fn: Callable[[], bool] | None = None
+    audit_fn: Callable[
+        ["LionTool", Mapping[str, JSONValue], ToolResult],
+        Awaitable[None] | None,
+    ] | None = None
